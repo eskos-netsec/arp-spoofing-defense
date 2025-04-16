@@ -3,9 +3,9 @@ import json
 from Crypto.Random import get_random_bytes
 
 # Configuración de red
-IP_PC2 = "192.168.10.2"
-IP_PC1 = "192.168.10.1"
-MAC_PC1 = "00:00:00:00:00:01"
+IP_PC2 = "192.168.122.211"
+IP_PC1 = "192.168.122.250"
+MAC_PC1 = "0C:DA:8F:2C:00:00"
 PORT = 6000
 
 # Conectar a PC2
