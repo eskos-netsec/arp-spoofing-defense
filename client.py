@@ -1,13 +1,12 @@
 import socket
 import json
-from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 
 # Configuración de red
 IP_PC2 = "192.168.10.2"
 IP_PC1 = "192.168.10.1"
 MAC_PC1 = "00:00:00:00:00:01"
-PORT = 5000
+PORT = 6000
 
 # Conectar a PC2
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
@@ -27,12 +26,15 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
     client.sendall(encrypted_aes_key)
 
     # Recibir tabla ARP cifrada
-    data = client.recv(1024)
-    nonce = data[:16]
-    tag = data[16:32]
-    ciphertext = data[32:]
+    data = client.recv(4096).decode()
+    received_data = json.loads(data)
+    from Crypto.Cipher import AES
+    nonce = bytes.fromhex(received_data["nonce"])
+    tag = bytes.fromhex(received_data["tag"])
+    ciphertext = bytes.fromhex(received_data["ciphertext"])
     cipher_aes = AES.new(aes_key, AES.MODE_EAX, nonce=nonce)
-    arp_table = json.loads(cipher_aes.decrypt_and_verify(ciphertext, tag).decode())
+    plaintext = cipher_aes.decrypt_and_verify(ciphertext, tag)
+    arp_table = json.loads(plaintext.decode())
     print("Tabla ARP recibida y descifrada:", arp_table)
 
     # Registrar tabla ARP como estática (simulado)
@@ -42,4 +44,9 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
     ip_mac = {'ip': IP_PC1, 'mac': MAC_PC1}
     cipher_aes = AES.new(aes_key, AES.MODE_EAX)
     ciphertext, tag = cipher_aes.encrypt_and_digest(json.dumps(ip_mac).encode())
-    client.sendall(cipher_aes.nonce + tag + ciphertext)
+    data_to_send = {
+        "nonce": cipher_aes.nonce.hex(),
+        "tag": tag.hex(),
+        "ciphertext": ciphertext.hex()
+    }
+    client.sendall(json.dumps(data_to_send).encode())
