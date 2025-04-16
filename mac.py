@@ -1,8 +1,6 @@
 import socket
 import json
 from scapy.all import ARP, Ether, srp
-from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Random import get_random_bytes
 
 # Función para escanear ARP y obtener la tabla ARP
@@ -16,12 +14,24 @@ def arp_scan(ip_range):
         arp_table[received.psrc] = received.hwsrc
     return arp_table
 
+# Función para cifrar con RSA (simplificado con primos pequeños)
+def rsa_encrypt(message, pub_key):
+    e, n = pub_key
+    cipher = pow(int.from_bytes(message, 'big'), e, n)
+    return cipher.to_bytes((n.bit_length() + 7) // 8, 'big')
+
+# Función para descifrar con RSA
+def rsa_decrypt(ciphertext, priv_key):
+    d, n = priv_key
+    message = pow(int.from_bytes(ciphertext, 'big'), d, n)
+    return message.to_bytes((n.bit_length() + 7) // 8, 'big')
+
 # Configuración de red
-IP_PC2 = "192.168.10.2"
-PORT = 5000
+IP_PC2 = "192.168.122.211"
+PORT = 6000
 
 # Escanear ARP para obtener la tabla confiable
-arp_table = arp_scan("192.168.10.0/24")
+arp_table = arp_scan("192.168.122.0/24")
 print("Tabla ARP confiable de PC2:", arp_table)
 
 # Generar claves RSA con primos pequeños
@@ -33,18 +43,6 @@ e = 17  # Coprimo con phi
 d = pow(e, -1, phi)  # Inverso modular
 public_key = (e, n)
 private_key = (d, n)
-
-# Función para cifrar con RSA
-def rsa_encrypt(message, pub_key):
-    e, n = pub_key
-    cipher = pow(int.from_bytes(message, 'big'), e, n)
-    return cipher.to_bytes((n.bit_length() + 7) // 8, 'big')
-
-# Función para descifrar con RSA
-def rsa_decrypt(ciphertext, priv_key):
-    d, n = priv_key
-    message = pow(int.from_bytes(ciphertext, 'big'), d, n)
-    return message.to_bytes((n.bit_length() + 7) // 8, 'big')
 
 # Iniciar servidor TCP
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
@@ -64,15 +62,24 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         print("Clave AES recibida:", aes_key)
 
         # Cifrar tabla ARP con AES
+        from Crypto.Cipher import AES
         cipher_aes = AES.new(aes_key, AES.MODE_EAX)
         ciphertext, tag = cipher_aes.encrypt_and_digest(json.dumps(arp_table).encode())
-        conn.sendall(cipher_aes.nonce + tag + ciphertext)
+
+        # Enviar datos en formato JSON
+        data_to_send = {
+            "nonce": cipher_aes.nonce.hex(),
+            "tag": tag.hex(),
+            "ciphertext": ciphertext.hex()
+        }
+        conn.sendall(json.dumps(data_to_send).encode())
 
         # Recibir IP y MAC cifradas de PC1
-        data = conn.recv(1024)
-        nonce = data[:16]
-        tag = data[16:32]
-        ciphertext = data[32:]
+        data = conn.recv(4096).decode()
+        received_data = json.loads(data)
+        nonce = bytes.fromhex(received_data["nonce"])
+        tag = bytes.fromhex(received_data["tag"])
+        ciphertext = bytes.fromhex(received_data["ciphertext"])
         cipher_aes = AES.new(aes_key, AES.MODE_EAX, nonce=nonce)
         decrypted_data = cipher_aes.decrypt_and_verify(ciphertext, tag)
         ip_mac = json.loads(decrypted_data.decode())
